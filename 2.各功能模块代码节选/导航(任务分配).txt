@@ -1,0 +1,235 @@
+double AssignmentProblemSolver::Solve(vector<vector<double> >& DistMatrix,vector<int>& Assignment,TMethod Method)
+{
+    int N=DistMatrix.size();    // number of columns (tracks)
+    int M=DistMatrix[0].size(); // number of rows (measurements)
+
+    int *assignment		=new int[N];
+    double *distIn		=new double[N*M];
+
+    double  cost;
+    //初始化数据
+    for(int i=0; i<N; i++)
+    {
+        for(int j=0; j<M; j++)
+        {
+            distIn[i+N*j] = DistMatrix[i][j];
+        }
+    }
+
+    //选取计算他们的计算时间复杂度不同
+    switch(Method)
+    {
+        case optimal: assignmentoptimal(assignment, &cost, distIn, N, M); break;
+        case many_forbidden_assignments: assignmentsuboptimal1(assignment, &cost, distIn, N, M); break;
+        case without_forbidden_assignments: assignmentsuboptimal2(assignment, &cost, distIn, N, M); break;
+    }
+
+    //结果
+    Assignment.clear();
+    for(int x=0; x<N; x++)
+    {
+        Assignment.push_back(assignment[x]);
+    }
+
+    delete[] assignment;
+    delete[] distIn;
+    return cost;
+}
+
+// --------------------------------------------------------------------------
+// 使用Munkres算法计算最优分配(总成本最小)。
+// --------------------------------------------------------------------------
+void AssignmentProblemSolver::assignmentoptimal(int *assignment, double *cost, double *distMatrixIn, int nOfRows, int nOfColumns)
+{
+    double *distMatrix;
+    double *distMatrixTemp;
+    double *distMatrixEnd;
+    double *columnEnd;
+    double  value;
+    double  minValue;
+
+    bool *coveredColumns;
+    bool *coveredRows;
+    bool *starMatrix;
+    bool *newStarMatrix;
+    bool *primeMatrix;
+
+    int nOfElements;
+    int minDim;
+    int row;
+    int col;
+
+    // 数据初始化
+    *cost = 0;
+    for(row=0; row<nOfRows; row++)
+    {
+        assignment[row] = -1.0;
+    }
+
+    nOfElements   = nOfRows * nOfColumns;//总元素数量
+
+    distMatrix    = (double *)malloc(nOfElements * sizeof(double));//分配内存
+
+    distMatrixEnd = distMatrix + nOfElements;//指向最后一个元素 首地址+偏移量
+
+    //生成距离矩阵，并校验矩阵元素的
+    for(row=0; row<nOfElements; row++)
+    {
+        value = distMatrixIn[row];
+        if(value < 0)
+        {
+            cout << "所有的元素素必须大于0." << endl;
+        }
+        distMatrix[row] = value;
+    }
+
+    //内存分配
+    coveredColumns = (bool *)calloc(nOfColumns,  sizeof(bool));
+    coveredRows    = (bool *)calloc(nOfRows,     sizeof(bool));
+    starMatrix     = (bool *)calloc(nOfElements, sizeof(bool));
+    primeMatrix    = (bool *)calloc(nOfElements, sizeof(bool));
+    newStarMatrix  = (bool *)calloc(nOfElements, sizeof(bool)); /* used in step4 */
+
+    //准备阶段
+    if(nOfRows <= nOfColumns)
+    {
+        minDim = nOfRows;
+        for(row=0; row<nOfRows; row++)
+        {
+            //找到最小值
+            distMatrixTemp = distMatrix + row;
+            minValue = *distMatrixTemp;
+            distMatrixTemp += nOfRows;
+            while(distMatrixTemp < distMatrixEnd)
+            {
+                value = *distMatrixTemp;
+                if(value < minValue)
+                {
+                    minValue = value;
+                }
+                distMatrixTemp += nOfRows;
+            }
+
+            //从行的每个元素中减去最小的元素
+            distMatrixTemp = distMatrix + row;
+            while(distMatrixTemp < distMatrixEnd)
+            {
+                *distMatrixTemp -= minValue;
+                distMatrixTemp += nOfRows;
+            }
+        }
+
+
+        for(row=0; row<nOfRows; row++)
+        {
+            for(col=0; col<nOfColumns; col++)
+            {
+                if(distMatrix[row + nOfRows*col] == 0)
+                {
+                    if(!coveredColumns[col])
+                    {
+                        starMatrix[row + nOfRows*col] = true;
+                        coveredColumns[col]           = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        minDim = nOfColumns;
+        for(col=0; col<nOfColumns; col++)
+        {
+            distMatrixTemp = distMatrix     + nOfRows*col;
+            columnEnd      = distMatrixTemp + nOfRows;
+            minValue = *distMatrixTemp++;
+            while(distMatrixTemp < columnEnd)
+            {
+                value = *distMatrixTemp++;
+                if(value < minValue)
+                {
+                    minValue = value;
+                }
+            }
+
+            distMatrixTemp = distMatrix + nOfRows*col;
+            while(distMatrixTemp < columnEnd)
+            {
+                *distMatrixTemp++ -= minValue;
+            }
+        }
+
+        for(col=0; col<nOfColumns; col++)
+        {
+            for(row=0; row<nOfRows; row++)
+            {
+                if(distMatrix[row + nOfRows*col] == 0)
+                {
+                    if(!coveredRows[row])
+                    {
+                        starMatrix[row + nOfRows*col] = true;
+                        coveredColumns[col]           = true;
+                        coveredRows[row]              = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        for(row=0; row<nOfRows; row++)
+        {
+            coveredRows[row] = false;
+        }
+    }
+
+
+    step2b(assignment, distMatrix, starMatrix, newStarMatrix, primeMatrix, coveredColumns, coveredRows, nOfRows, nOfColumns, minDim);
+
+    //计算成本并删除无效的分配
+    computeassignmentcost(assignment, cost, distMatrixIn, nOfRows);
+
+    //内存释放
+    free(distMatrix);
+    free(coveredColumns);
+    free(coveredRows);
+    free(starMatrix);
+    free(primeMatrix);
+    free(newStarMatrix);
+    return;
+}
+
+// --------------------------------------------------------------------------
+// 建立赋值向量
+// --------------------------------------------------------------------------
+void AssignmentProblemSolver::buildassignmentvector(int *assignment, bool *starMatrix, int nOfRows, int nOfColumns)
+{
+    int row, col;
+    for(row=0; row<nOfRows; row++)
+    {
+        for(col=0; col<nOfColumns; col++)
+        {
+            if(starMatrix[row + nOfRows*col])
+            {
+                assignment[row] = col;
+                break;
+            }
+        }
+    }
+}
+
+// --------------------------------------------------------------------------
+// 计算价值
+// --------------------------------------------------------------------------
+void AssignmentProblemSolver::computeassignmentcost(int *assignment, double *cost, double *distMatrix, int nOfRows)
+{
+    int row, col;
+    for(row=0; row<nOfRows; row++)
+    {
+        col = assignment[row];
+        if(col >= 0)
+        {
+            *cost += distMatrix[row + nOfRows*col];
+        }
+    }
+}

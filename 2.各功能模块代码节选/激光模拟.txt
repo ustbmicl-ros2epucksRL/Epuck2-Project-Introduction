@@ -1,0 +1,100 @@
+// e-puck proximity positions (cm), x pointing forward, y pointing left
+// P7(3.5, 1.0)   P0(3.5, -1.0)
+// P6(2.5, 2.5)           P1(2.5, -2.5)
+// P5(0.0, 3.0)                   P2(0.0, -3.0)
+// P4(-3.5, 2.0)          P3(-3.5, -2.0)
+
+// e-puck proximity orentations (degrees)
+// P7(10)   P0(350)
+// P6(40)           P1(320)
+// P5(90)                   P2(270)
+// P4(160)          P3(200)
+
+// populate the LaserScan message
+laserMsg.header.stamp = ros::Time::now();
+laserMsg.header.frame_id = parent.str();
+laserMsg.angle_min = -M_PI/2.0;
+laserMsg.angle_max = M_PI/2.0;
+laserMsg.angle_increment = M_PI/18.0; // 10 degrees.
+laserMsg.ranges.resize(19);
+
+// Interpolation for the laser scan points
+float tempProx;
+tempProx = proxData[2];
+laserMsg.ranges[0] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+tempProx = proxData[2]*4/5 + proxData[1]*1/5;
+laserMsg.ranges[1] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+tempProx = proxData[2]*3/5 + proxData[1]*2/5;
+laserMsg.ranges[2] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+tempProx = proxData[2]*1/5 + proxData[1]*4/5;
+laserMsg.ranges[4] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+// -40 degrees: P1
+tempProx = proxData[1];
+laserMsg.ranges[5] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+// -30 degrees: 2/3*P1 + 1/3*P0
+tempProx = proxData[1]*2/3 + proxData[0]*1/3;
+laserMsg.ranges[6] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+// -20 degrees: 1/3*P1 + 2/3*P0
+tempProx = proxData[1]*1/3 + proxData[0]*2/3;
+laserMsg.ranges[7] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+// -10 degrees: P0
+tempProx = proxData[0];
+laserMsg.ranges[8] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+// 0 degrees: 1/2*P0 + 1/2*P7
+tempProx = (proxData[0]+proxData[7])>>1;
+laserMsg.ranges[9] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+// 10 degrees: P7
+tempProx = proxData[7];
+laserMsg.ranges[10] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+// 20 degrees: 1/3*P6 + 2/3*P7
+tempProx = proxData[7]*2/3 + proxData[6]*1/3;
+laserMsg.ranges[11] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+// 30 degrees: 2/3*P6 + 1/3*P7
+tempProx = proxData[7]*1/3 + proxData[6]*2/3;
+laserMsg.ranges[12] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+// 40 degrees: P6
+tempProx = proxData[6];
+laserMsg.ranges[13] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+// 50 degrees: 1/5*P5 + 4/5*P6
+tempProx = proxData[6]*4/5 + proxData[5]*1/5;
+laserMsg.ranges[14] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+// 60 degrees: 2/5*P5 + 3/5*P6
+tempProx = proxData[6]*3/5 + proxData[5]*2/5;
+laserMsg.ranges[15] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+// 70 degrees: 3/5*P5 + 2/5*P6
+tempProx = proxData[6]*2/5 + proxData[5]*3/5;
+laserMsg.ranges[16] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+// 80 degrees: 4/5*P5 + 1/5*P6
+tempProx = proxData[6]*1/5 + proxData[5]*4/5;
+laserMsg.ranges[17] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+// 90 degrees: P5
+tempProx = proxData[5];
+laserMsg.ranges[18] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+// Publish the LaserScan message
+laserPublisher.publish(laserMsg);
+
+
+tempProx = proxData[5];
+laserMsg.ranges[18] = (0.5/sqrt(tempProx)) + ROBOT_RADIUS;
+
+// Publish the LaserScan message
+laserPublisher.publish(laserMsg);
+

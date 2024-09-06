@@ -1,0 +1,165 @@
+# 导入必要的Python模块
+from math import sin, cos, atan2
+import rclpy  # ROS2的Python客户端库
+from rclpy.node import Node  # ROS2节点基类
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile  # 用于配置消息的QoS
+from nav_msgs.msg import OccupancyGrid  # 导入地图消息类型
+from sensor_msgs.msg import LaserScan  # 导入激光扫描消息类型
+from geometry_msgs.msg import TransformStamped  # 导入变换Stamped消息类型
+from tf2_ros import StaticTransformBroadcaster, TransformListener, Buffer  # 导入TF2相关类
+from tf2_ros import LookupException, ConnectivityException, ExtrapolationException  # 导入TF2异常类型
+from builtin_interfaces.msg import Time  # 导入时间消息类型
+
+# 设置模拟世界的尺寸和分辨率
+WORLD_WIDTH = 3
+WORLD_HEIGHT = 3
+RESOLUTION = 0.01
+
+# 计算地图的原点坐标
+WORLD_ORIGIN_X = - WORLD_WIDTH / 2.0
+WORLD_ORIGIN_Y = - WORLD_HEIGHT / 2.0
+# 计算地图的宽度和高度（以单元格为单位）
+MAP_WIDTH = int(WORLD_WIDTH / RESOLUTION)
+MAP_HEIGHT = int(WORLD_HEIGHT / RESOLUTION)
+
+# 定义SimpleMapper类，继承自Node类
+class SimpleMapper(Node):
+    def __init__(self, name):
+        super().__init__(name)  # 初始化节点
+
+        # 声明一个参数，用于控制是否填充地图
+        fill_map_param = self.declare_parameter('fill_map', True)
+
+        # 初始化地图相关元素
+        self.map = [-1] * MAP_WIDTH * MAP_HEIGHT  # 初始化地图数据为未知状态
+        # 创建地图发布者
+        self.map_publisher = self.create_publisher(
+            OccupancyGrid,  # 消息类型
+            '/map',  # 主题名称
+            qos_profile=QoSProfile(  # 配置QoS
+                depth=1,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                history=HistoryPolicy.KEEP_LAST,
+            )
+        )
+        # 创建TF广播器
+        self.tf_publisher = StaticTransformBroadcaster(self)
+        # 设置地图到里程计的静态变换
+        tf = TransformStamped()
+        tf.header.stamp = self.get_clock().now().to_msg()
+        tf.header.frame_id = 'map'
+        tf.child_frame_id = 'odom'
+        tf.transform.translation.x = 0.0
+        tf.transform.translation.y = 0.0
+        tf.transform.translation.z = 0.0
+        self.tf_publisher.sendTransform(tf)
+
+        # 如果参数fill_map为True，则初始化激光扫描相关元素
+        if fill_map_param.value:
+            self.tf_buffer = Buffer()
+            self.tf_listener = TransformListener(self.tf_buffer, self)
+            # 创建激光扫描订阅者
+            self.scanner_subscriber = self.create_subscription(LaserScan, '/scan', self.update_map, 1)
+
+        # 开始发布地图
+        self.publish_map()
+        # 创建一个定时器，定期发布地图
+        self.create_timer(1, self.publish_map)
+
+    def publish_map(self):
+        # 获取当前时间
+        now = self.get_clock().now()
+
+        # 创建地图消息
+        msg = OccupancyGrid()
+        msg.header.stamp = now.to_msg()
+        msg.header.frame_id = 'map'
+        msg.info.resolution = RESOLUTION
+        msg.info.width = MAP_WIDTH
+        msg.info.height = MAP_HEIGHT
+        msg.info.origin.position.x = WORLD_ORIGIN_X
+        msg.info.origin.position.y = WORLD_ORIGIN_Y
+        msg.data = self.map
+        # 发布地图消息
+        self.map_publisher.publish(msg)
+
+    def update_map(self, msg):
+        # 确定激光雷达和机器人在里程计坐标系中的变换
+        laser_rotation = None
+        laser_translation = None
+        try:
+            # 查找激光雷达在里程计坐标系中的变换
+            tf = self.tf_buffer.lookup_transform('odom', msg.header.frame_id, Time(sec=0, nanosec=0))
+            q = tf.transform.rotation
+            # 计算激光雷达的旋转角度
+            laser_rotation = atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+            # 获取激光雷达的平移向量
+            laser_translation = tf.transform.translation
+        except (LookupException, ConnectivityException, ExtrapolationException) as e:
+            print('No required transformation found: `{}`'.format(str(e)))
+            return
+
+                # 确定机器人和激光雷达在世界坐标系中的位置
+        world_robot_x = laser_translation.x + WORLD_ORIGIN_X
+        world_robot_y = laser_translation.y + WORLD_ORIGIN_Y
+        world_laser_xs = []  # 存储激光点在世界坐标系中的x坐标
+        world_laser_ys = []  # 存储激光点在世界坐标系中的y坐标
+        # 计算激光扫描的起始角度
+        laser_range_angle = msg.angle_min + laser_rotation
+        # 遍历激光扫描数据
+        for laser_range in msg.ranges:
+            # 如果激光读数有效
+            if laser_range < msg.range_max and laser_range > msg.range_min:
+                # 计算激光点在世界坐标系中的位置
+                laser_x = world_robot_x + laser_range * cos(laser_range_angle)
+                laser_y = world_robot_y + laser_range * sin(laser_range_angle)
+                world_laser_xs.append(laser_x)
+                world_laser_ys.append(laser_y)
+            # 增加激光扫描的角度
+            laser_range_angle += msg.angle_increment
+
+        # 将世界坐标系中的位置转换为地图坐标系中的位置
+        robot_x = int(world_robot_x / RESOLUTION)
+        robot_y = int(world_robot_y / RESOLUTION)
+        laser_xs = []
+        laser_ys = []
+        for world_laser_x, world_laser_y in zip(world_laser_xs, world_laser_ys):
+            laser_x = int(world_laser_x / RESOLUTION)
+            laser_y = int(world_laser_y / RESOLUTION)
+            laser_xs.append(laser_x)
+            laser_ys.append(laser_y)
+
+        # 根据已知的激光读数填充地图
+        for laser_x, laser_y in zip(laser_xs, laser_ys):
+            self.plot_bresenham_line(robot_x, laser_x, robot_y, laser_y)
+            self.map[laser_y * MAP_WIDTH + laser_x] = 100  # 将激光点标记为占用
+
+    def plot_bresenham_line(self, x0, x1, y0, y1):
+        # 使用Bresenham算法绘制直线
+        dx = abs(x1 - x0)
+        sx = 1 if x0 < x1 else -1
+        dy = -abs(y1 - y0)
+        sy = 1 if y0 < y1 else -1
+        err = dx + dy
+        while True:
+            self.map[y0 * MAP_WIDTH + x0] = 0  # 将直线上的点标记为空闲
+            if x0 == x1 and y0 == y1:
+                break
+            e2 = 2 * err
+            if e2 >= dy:
+                err += dy
+                x0 += sx
+            if e2 <= dx:
+                err += dx
+                y0 += sy
+
+# 主函数
+def main(args=None):
+    rclpy.init(args=args)  # 初始化ROS2
+    epuck_controller = SimpleMapper('epuck_simple_mapper')  # 创建SimpleMapper实例
+    rclpy.spin(epuck_controller)  # 开始处理ROS2消息
+    epuck_controller.destroy_node()  # 销毁节点
+    rclpy.shutdown()  # 关闭ROS2
+
+if __name__ == '__main__':
+    main()  # 执行主函数
