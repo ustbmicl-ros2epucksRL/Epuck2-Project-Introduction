@@ -16,7 +16,9 @@ ROS2学习资料：https://www.mubu.com/doc/2KrR_lVv0cs
 
 计设文档链接：https://pan.baidu.com/s/1LhhflCOCaNtV8-GXzQexBA
 
-UWB测距板扩展资料
+
+
+拓展硬件UWB测距板扩展资料
 参考资料：
 1. 官方资料：UWB （https://www.gctronic.com/doc/index.php?title=Ultra_Wide_Band_Extension ）+ pi-puck （https://www.gctronic.com/doc/index.php?title=Ultra_Wide_Band_Extension）
 2. UWB驱动：
